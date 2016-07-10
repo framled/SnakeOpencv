@@ -21,32 +21,27 @@ struct RGB {
     uchar green;
     uchar red;
 };
+
+Mat src;
 unsigned long length = 0;
 int i = 0;
-string PUT_POINTS_WIN = "put points";
-string SNAKE_WIN = "snake";
+int alpha = 1, beta = 4, gama = 9;
+int max_alpha = 10, max_beta = 10, max_gamma = 10;
+int sigma = 0, max_sigma = 10;
+
 string NORMAL_WINDOW = "normal window";
 CvPoint* points;
 
 
 void printUsage(){
   cout << "The options available are: "<< endl
-        <<"-r [file path]           Open file that contains a point with cvs, x,y one for line" << endl
         <<"-w [file path]           write file the snake control points x,y one for line" << endl
         <<"-i [image path]          Open the image" << endl
-        <<"-a [alpha]               Set alpha value (default 0.5). Elastic properties" << endl
-        <<"-b [beta]                Set beta value (default 0.5). Curvature properties" << endl
-        <<"-g [gamma]               Set gamma value (default 0.9). Extrinsic properties" << endl
-        <<"-e [epsilon]             Set epsilon value" << endl
         <<"-h                       Print this usage" << endl;
 }
-void snake(Mat& image, CvPoint* ptr_points, float &alpha, float &beta, float &gamma);
-void mouseHandler(int event, int x, int y, int flags, void* para);
-void putPoints(Mat& img);
-void showSnake(Mat& img);
-void savePoints(string path);
-void readFile(string path);
-void newmannBoundaryCondition(Mat& img);
+void snake(int _, void* p);
+void showSnake();
+CvPoint* newmannBoundaryCondition(int width, int height);
 void writeImage(int state , void* pointer);
 
 int main(int argc, char** argv){
@@ -55,96 +50,88 @@ int main(int argc, char** argv){
       printUsage();
       return 0;
     }
+
     namedWindow(NORMAL_WINDOW,WINDOW_NORMAL);
     //CODE TO LOADING IMAGE
-    Mat frame, copy;
     if(pcl::console::find_argument(argc,argv,"-i") >= 0){
       //"../resources/fighter.jpg"
-      frame = imread (argv[pcl::console::find_argument(argc,argv,"-i")+1], CV_LOAD_IMAGE_GRAYSCALE);
-      if(frame.empty()){
+      src = imread (argv[pcl::console::find_argument(argc,argv,"-i")+1], CV_LOAD_IMAGE_COLOR);
+      if(src.empty()){
         cout << "Error : Image cannot be loaded..!!" << endl;
         system("pause");
         return -1;
       }
-      copy = Mat::zeros( frame.size(), frame.type());
-      frame.copyTo(copy);
     }else{
       cout << "Error: no image to load" << endl;
       system("pause");
       return -1;
     }
+    Mat dst;
+    dst = Mat::zeros( src.size(), src.type());
+    src.copyTo(dst);
+    cv::cvtColor(dst, dst, cv::COLOR_BGR2GRAY);
 
-    if(pcl::console::find_argument(argc,argv,"-r") >= 0){
-      //"../resources/points_before.txt"
-      readFile(argv[pcl::console::find_argument(argc,argv,"-r")+1]);
-    }else{
-        newmannBoundaryCondition(copy);
-      //putPoints(copy);
-      if(pcl::console::find_argument(argc,argv,"-w") >= 0){
-        savePoints(argv[pcl::console::find_argument(argc,argv,"-w")+1]);
-      }
-    }
-    copy.release();
+    createTrackbar("Alpha:\n", NORMAL_WINDOW, &alpha, max_alpha, snake, &dst);
+    createTrackbar("Beta:\n", NORMAL_WINDOW, &beta, max_beta, snake ,&dst);
+    createTrackbar("Gamma:\n", NORMAL_WINDOW, &gama, max_gamma, snake ,&dst);
+    createTrackbar("Sigma:\n", NORMAL_WINDOW, &sigma, max_sigma, snake ,&dst);
 
-    GaussianBlur(frame, copy, Size(9, 9), 0, 0);
-    threshold( copy, copy, 40, 255,CV_THRESH_BINARY);
-
-
-    float alpha, beta, gamma;
-    alpha = 0.5;beta = 0.5;gamma = 0.9;
-    if(pcl::console::find_argument(argc,argv,"-a") >= 0){
-      alpha = stof(argv[pcl::console::find_argument(argc,argv,"-a")+1]);
-    }
-    if(pcl::console::find_argument(argc,argv,"-b") >= 0){
-      beta = stof(argv[pcl::console::find_argument(argc,argv,"-b")+1]);
-    }
-    if(pcl::console::find_argument(argc,argv,"-g") >= 0){
-      gamma = stof(argv[pcl::console::find_argument(argc,argv,"-g")+1]);
-    }
-    snake(copy, points, alpha, beta, gamma);
-    showSnake(frame);
-    frame.release();
-    return 0;
-}
-
-void snake(Mat& image, CvPoint* ptr_points, float &alpha, float &beta, float &gamma)
-{
-    IplImage copy = image;
-    IplImage * image2 = &copy;
-
-    CvSize size; // Size of neighborhood of every point used to search the minimumm have to be odd
-    size.width = 5;
-    size.height = 5;
-
-    CvTermCriteria criteria;
-    criteria.type = CV_TERMCRIT_ITER;  // terminate processing after X iteration
-    criteria.max_iter = 10000;
-    criteria.epsilon = 0.1;
-
-    cout << "starting snake, with setting: " << endl
-        << "alpha " << alpha << endl
-        << "beta " << beta << endl
-        << "gamma " << gamma << endl;
-    cvSnakeImage(image2, points, length, &alpha, &beta, &gamma, CV_VALUE, size, criteria, 0);
-
-    cout << "finishing snake" << endl
-        << "showing result" << endl;
-
-}
-void showSnake(Mat& image){
-    int h = image.size().height;
-    int w = image.size().width;
-    Mat color(h , w , CV_8UC3, Scalar(255,255,255));
-    cv::cvtColor(image, color, cv::COLOR_GRAY2BGR);
-    createButton("Save",writeImage,&color,CV_PUSH_BUTTON,1);
-    for(int j = 1; j < length ; j++){
-        circle(color, *(points+j), 2, Scalar(0,0,255), -1);
-    }
-    imshow(NORMAL_WINDOW,color);
+    snake(0, &dst);
     if(waitKey(0) == 27){
         destroyWindow(NORMAL_WINDOW.c_str());
     }
+    src.release();
+
+    return 0;
 }
+
+void snake(int _, void* p)
+{
+    Mat* ptr_dst = (Mat*) p;
+
+    cout << "Start Filter " << endl;
+    float s = (float) sigma/10.0;
+    GaussianBlur(*ptr_dst, *ptr_dst, Size(9, 9), s, s);
+    //threshold( *ptr_dst, *ptr_dst, 0, 255,THRESH_BINARY|THRESH_OTSU);
+    cout << "End Filter " << endl;
+
+    IplImage* img = new IplImage(*ptr_dst);
+
+    CvSize size; // Size of neighborhood of every point used to search the minimumm have to be odd
+    size.width = 3;
+    size.height = 3;
+
+    CvTermCriteria criteria;
+    criteria.type = CV_TERMCRIT_ITER;  // terminate processing after X iteration
+    criteria.max_iter = 100;
+    criteria.epsilon = 0.1;
+
+    cout << "Start Neumann bound condition " << endl;
+    points = newmannBoundaryCondition(img->width, img->height);
+    cout << "End Neumann bound condition " << endl;
+
+    float a = (float)alpha/10.0 ,b = (float)beta/10.0 ,g = (float) gama/10.0;
+
+    cout << "alpha: " << a << " , beta: " << b << " , gamma: " << g << endl;
+
+    cout << "Start Snake with" << endl;
+    cvSnakeImage(img, points, length, (float*)&a, (float*)&b , (float*)&g , CV_VALUE, size, criteria, 0);
+    cout << "End Snake" << endl;
+
+    showSnake();
+}
+
+void showSnake(){
+    createButton("Save",writeImage,&src,CV_PUSH_BUTTON,1);
+    Mat temp;
+    temp = Mat::zeros( src.size(), src.type());
+    src.copyTo(temp);
+    for(int j = 1; j < length ; j++){
+        circle(temp, *(points+j), 4, Scalar(0,0,255), -1);
+    }
+    imshow(NORMAL_WINDOW,temp);
+}
+
 
 void writeImage(int state, void* pointer){
     std::vector<int> compression_params;
@@ -169,75 +156,17 @@ void savePoints(string path){
     }
 
 }
-void readFile(string path){
-  ifstream file;
-  file.open(path);
-  if(file.is_open()){
-    string output;
-    cout << "open file success" << endl;
-    char_separator<char> sep(",");
-    cout << "reading file" << endl;
-    while(getline(file,output)){
 
-      tokenizer< char_separator<char> > tokens(output, sep);
-      boost::tokenizer< boost::char_separator<char> >::iterator beg;
-      beg = tokens.begin();
-      points[i].x = stoi(*tokens.begin(),0,10);
-      points[i].y = stoi(*(++tokens.begin()),0,10);
-      i++;
-    }
-    cout << "closing file" << endl;
-    file.close();
-  }else{
-    cout << "Ho ho!!! errors ocurred when I why try open this file: " << path << endl;
-  }
-}
-void mouseHandler(int event, int x, int y, int flags, void* param){
-  if(event == CV_EVENT_LBUTTONDOWN){
-    if(flags & CV_EVENT_FLAG_CTRLKEY){
-        printf("Left button down with CTRL pressed\n");
-        Mat& img = *((Mat*) (param));
-
-        Point point(x,y);
-        points[i].x = x;
-        points[i].y = y;
-
-        cout << points[i].x << points[i].y << endl;
-        int color = img.at<uchar>(point);
-
-        cv::circle(img,points[i],2,abs(color-255),-1);
-        if(i > 0)
-          cv::line(img, points[(i-1)%i],points[i],abs(color-255),2);
-
-        cv::imshow(NORMAL_WINDOW.c_str(),img);
-        i++;
-    }
-  }
-}
-void putPoints(Mat& img){
-  namedWindow(PUT_POINTS_WIN,WINDOW_NORMAL);
-  cvSetMouseCallback(PUT_POINTS_WIN.c_str(),mouseHandler,&img);
-
-  imshow(PUT_POINTS_WIN,img);
-  if(waitKey(0) == 27 ){
-    cout << "Finish points " << endl;
-    destroyWindow(PUT_POINTS_WIN.c_str());
-    return;
-  }
-}
-
-void newmannBoundaryCondition(Mat& img)
+CvPoint* newmannBoundaryCondition(int width, int height)
 {
-    int width = img.size().width;
-    int heigh = img.size().height;
     int margin = 10;
-    int step = 10;
+    int step = 1;
     vector<CvPoint> list;
     CvPoint p;
     p.x = margin;
     p.y = margin;
     list.push_back(p);
-    while (list.back().y <= heigh - margin){
+    while (list.back().y <= height - margin){
         CvPoint point;
         point.x = margin;
         point.y = list.back().y + step;
@@ -264,4 +193,5 @@ void newmannBoundaryCondition(Mat& img)
     points = new CvPoint[list.size()];
     length = list.size();
     std::copy(list.begin(), list.end() , points);
+    return points;
 }
